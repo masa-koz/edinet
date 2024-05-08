@@ -4,6 +4,16 @@ require 'rexml/document'
 require 'rexml/xpath'
 require 'csv'
 
+labels = {}
+
+def get_path_and_name(zip)
+	zip.each do |entry|
+		if entry.name =~ /(.*PublicDoc)\/([^\.]+)\.xbrl$/
+			return $1, $2
+		end
+	end
+end
+
 if ARGV.length < 2
 	exit(1)
 end
@@ -20,9 +30,19 @@ outputdir = File.absolute_path(outputname)
 Dir.chdir(dirname) do
 	Dir.glob("*.zip") do |zipname|
 		Zip::File.open(zipname) do |zipFile|
-			zipFile.each do |entry|
-				next unless  entry.name =~ /PublicDoc\/([^\.]+)\.xbrl$/
-				uniqname = $1
+			path, name = get_path_and_name(zipFile)
+			doc = REXML::Document.new(zipFile.get_entry("#{path}/#{name}.xbrl").get_input_stream.read)
+			elements = doc.get_elements("//xbrli:xbrl")
+			next if elements.empty?
+			namespaces = elements[0].namespaces
+			namespaces.delete_if {|key, val| not key =~ /^jp/}
+			namespaces.each do |namespace, uri|
+				elements = doc.get_elements("//#{namespace}:*")
+				elements.each do |element|
+					p element
+				end
+			end
+=begin
 				begin
 					destname = "#{outputdir}/#{uniqname}.xbrl"
 					entry.extract(destname)
@@ -32,11 +52,12 @@ Dir.chdir(dirname) do
 				end
 				xbrls.push(destname)
 				$stderr.puts "Extract: #{destname}"
-			end
+=end
 		end
 	end
 end
 
+=begin
 xbrls.each do |filename|
 	doc = REXML::Document.new(open(filename))
 
@@ -247,3 +268,4 @@ puts <<"HTML"
 </table>
 HTML
 file.close
+=end

@@ -2,6 +2,7 @@ require 'rubygems'
 require 'zip'
 require 'rexml/document'
 require 'rexml/xpath'
+require 'uri'
 require 'csv'
 
 labels = {}
@@ -14,48 +15,108 @@ def get_path_and_name(zip)
 	end
 end
 
+def get_labels(xsd_doc, xsd_path, label_doc)
+	store = {}
+	elements = xsd_doc.get_elements("//element")
+	if elements.empty?
+		elements = xsd_doc.get_elements("//xsd:element")
+	end
+
+	locators_hash = {}
+	label_doc.get_elements("//link:loc").each do |locator|
+		locators_hash[locator.attribute("href").value] = locator.attribute("label").value
+	end
+
+	arcs_hash = {}
+	label_doc.get_elements("//link:labelArc").each do |arc|
+		unless arcs_hash.has_key?(arc.attribute("from").value)
+			arcs_hash[arc.attribute("from").value] = [arc.attribute("to").value]
+		else
+			arcs_hash[arc.attribute("from").value].push(arc.attribute("to").value)
+		end
+	end
+
+	labels_hash = {}
+	label_doc.get_elements("//link:label").each do |label|
+		labels_hash[label.attribute("label").value] = label.text
+	end
+
+	elements.each do |element|
+		id = element.attribute("id").value
+		name = element.attribute("name").value
+		store[name] = []
+		xlink_label = locators_hash["#{xsd_path}\##{id}"]
+		arcs_hash[xlink_label].each do |label_id|
+			store[name].push(labels_hash[label_id])
+		end
+	end
+	store
+end
+
 if ARGV.length < 2
 	exit(1)
 end
 
 datas = {}
 xbrls = []
+label_store = nil
+if File.exist?("label_store.dat")
+	label_store = Marshal.load(open("label_store.dat"))
+else
+	label_store = {}
+end
 
 dirname = ARGV.shift
 outputname = ARGV.shift
 
+topdir = Dir.pwd
 Dir.mkdir(outputname) unless Dir.exist?(outputname)
 outputdir = File.absolute_path(outputname)
 
 Dir.chdir(dirname) do
 	Dir.glob("*.zip") do |zipname|
 		Zip::File.open(zipname) do |zipFile|
-			path, name = get_path_and_name(zipFile)
-			doc = REXML::Document.new(zipFile.get_entry("#{path}/#{name}.xbrl").get_input_stream.read)
-			elements = doc.get_elements("//xbrli:xbrl")
+			path, doc_name = get_path_and_name(zipFile)
+			xbrl = REXML::Document.new(zipFile.get_entry("#{path}/#{doc_name}.xbrl").get_input_stream.read)
+			elements = xbrl.get_elements("//xbrli:xbrl")
 			next if elements.empty?
 			namespaces = elements[0].namespaces
-			namespaces.delete_if {|key, val| not key =~ /^jp/}
+			namespaces.delete_if {|key, val| URI.parse(val).host != "disclosure.edinet-fsa.go.jp" }
 			namespaces.each do |namespace, uri|
-				elements = doc.get_elements("//#{namespace}:*")
-				elements.each do |element|
-					p element
+				uri = URI.parse(uri)
+				if uri.host == "disclosure.edinet-fsa.go.jp"
+					params = uri.path.split("/")[1..]
+					if params.first == "taxonomy"
+						unless label_store.has_key?(uri.to_s)
+							xsd_path = sprintf("%s_%s.xsd", params.join("/"), params[-2])
+							label_path = sprintf("%s/label/%s_%s_lab.xml", params[0..-2].join("/"), params[1], params[-2])
+							xsd_doc = REXML::Document.new(open("#{topdir}/#{xsd_path}"))
+							xsd_relative_path = "../#{File.basename(xsd_path)}"
+							label_doc = REXML::Document.new(open("#{topdir}/#{label_path}"))
+							label_store[uri.to_s] = get_labels(xsd_doc, xsd_relative_path, label_doc)
+						end
+					elsif params.length == 7 && doc_name == "#{params[0]}-#{params[1]}-#{params[2]}_#{params[3]}_#{params[4]}_#{params[5]}_#{params[6]}"
+						unless label_store.has_key?(uri.to_s)
+							xsd_doc = REXML::Document.new(zipFile.get_entry("#{path}/#{doc_name}.xsd").get_input_stream.read)
+							xsd_path = "#{doc_name}.xsd"
+							label_doc = REXML::Document.new(zipFile.get_entry("#{path}/#{doc_name}_lab.xml").get_input_stream.read)
+							label_store[uri.to_s] = get_labels(xsd_doc, xsd_path, label_doc)
+						end
+					end
 				end
 			end
-=begin
-				begin
-					destname = "#{outputdir}/#{uniqname}.xbrl"
-					entry.extract(destname)
-				rescue Zip::DestinationFileExistsError
-					destname = "#{outputdir}/#{uniqname}_#{Time.now.tv_sec}.xbrl"
-					entry.extract(destname)
+			p label_store
+			namespaces.each do |namespace, uri|
+				elements = xbrl.get_elements("//#{namespace}:*")
+				elements.each do |element|
+					#p element
 				end
-				xbrls.push(destname)
-				$stderr.puts "Extract: #{destname}"
-=end
+			end
 		end
 	end
 end
+
+Marshal.dump(label_store, open("label_store.dat", "w"))
 
 =begin
 xbrls.each do |filename|

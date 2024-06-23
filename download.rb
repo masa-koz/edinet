@@ -37,7 +37,21 @@ def download_xrbl(conn, output_dir, doc_id_array)
     end
 end
 
-api_key = File.open("api_key.txt").read
+def download_csv(conn, output_dir, doc_id_array)
+    doc_id_array.each do |doc_id|
+        puts "Downloading #{doc_id}..."
+        response = conn.get do |req|
+            req.url "/api/v2/documents/#{doc_id}"
+            req.params[:type] = 5
+        end
+        puts "Downloading #{doc_id}... done."
+        File.open("#{output_dir}/#{doc_id}.zip", "wb") do |file|
+            file.write(response.body)
+        end
+    end
+end
+
+api_key = File.open("api_key.txt").read.gsub(/\n/, '') # read api_key from file
 start_date = ARGV.shift
 end_date = ARGV.shift
 output_dir = ARGV.shift
@@ -59,6 +73,6 @@ conn = Faraday.new(:url => 'https://api.edinet-fsa.go.jp/api/v2/documents.json')
 end
 
 day_array = make_day_array(start_date, end_date)
-
 doc_id_array = make_doc_id_array(conn, day_array)
-download_xrbl(conn, output_dir, doc_id_array)
+#download_xrbl(conn, output_dir, doc_id_array)
+download_csv(conn, output_dir, doc_id_array)

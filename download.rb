@@ -39,6 +39,10 @@ end
 
 def download_csv(conn, output_dir, doc_id_array)
     doc_id_array.each do |doc_id|
+        if File.exist?("#{output_dir}/#{doc_id}.zip")
+            puts "#{doc_id} already exists."
+            next
+        end
         puts "Downloading #{doc_id}..."
         response = conn.get do |req|
             req.url "/api/v2/documents/#{doc_id}"

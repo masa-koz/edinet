@@ -2,7 +2,7 @@ require 'sqlite3'
 
 def get_entries(db, item, context)
     sql = <<-SQL
-        SELECT * FROM companies
+        SELECT item_#{item}.value FROM companies
             LEFT JOIN entries
                 ON companies.edinet_id = entries.edinet_id AND
                    companies.closing_date = entries.closing_date AND
@@ -17,7 +17,8 @@ end
 
 db = SQLite3::Database.new('edinet.db')
 
-rows = get_entries(db, "jppfs_cor_CapitalStock", "CurrentYearInstant_NonConsolidatedMember")
-p rows.length
-rows = get_entries(db, "jppfs_cor_NetAssets", "CurrentYearInstant_NonConsolidatedMember")
-p rows.length
+capital_stocks = get_entries(db, "jppfs_cor_CapitalStock", "CurrentYearInstant_NonConsolidatedMember")
+netassets = get_entries(db, "jppfs_cor_NetAssets", "CurrentYearInstant_NonConsolidatedMember")
+capital_stocks.flatten.zip(netassets.flatten).each do |row|
+    puts Float(row[0]) / Integer(row[1])
+end

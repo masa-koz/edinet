@@ -12,6 +12,12 @@ def create_companies_table(db)
         );
     SQL
     db.execute(sql)
+
+    sql = <<-SQL
+    CREATE INDEX IF NOT EXISTS idx_edinet_id_date ON companies
+        (edinet_id, closing_date)
+    SQL
+    db.execute(sql)
 end
 
 def create_entries_table(db)
@@ -26,6 +32,12 @@ def create_entries_table(db)
         );
     SQL
     db.execute(sql)
+
+    sql = <<-SQL
+    CREATE INDEX IF NOT EXISTS idx_date_item_context ON entries
+        (closing_date, edinet_id, context)
+    SQL
+    db.execute(sql)
 end
 
 def create_items_table(db)
@@ -35,6 +47,12 @@ def create_items_table(db)
             label TEXT,
             UNIQUE(item, label)
         );
+    SQL
+    db.execute(sql)
+
+    sql = <<-SQL
+    CREATE INDEX IF NOT EXISTS idx_item_label ON items
+        (item, label)
     SQL
     db.execute(sql)
 end
@@ -54,21 +72,13 @@ def create_item_table(db, table_name)
     db.execute(sql)
 end
 
-def create_index(db)
-    sql = <<-SQL
-    CREATE INDEX IF NOT EXISTS idx_date_item_context ON entries
-        (closing_date, edinet_id, context)
-    SQL
-    db.execute(sql)
-end
-
 def insert_company(db, edinet_id, closing_date)
     sql = <<-SQL
         SELECT * FROM companies
             WHERE edinet_id = ? AND closing_date = ?
     SQL
     rows = db.execute(sql, [edinet_id, closing_date])
-    return unless rows.empty?
+    return false unless rows.empty?
 
     sql = <<-SQL
         INSERT INTO companies (
@@ -77,6 +87,7 @@ def insert_company(db, edinet_id, closing_date)
         ) VALUES (?, ?)
     SQL
     db.execute(sql, [edinet_id, closing_date])
+    true
 end
 
 def insert_item(db, item, label)
@@ -155,30 +166,37 @@ db.transaction do
     create_companies_table(db)
     create_entries_table(db)
     create_items_table(db)
+rescue SQLite3::Exception => e
+    db.rollback
+    puts "Exception occurred #{e.message}"
+end
 
-    Dir.chdir(dirname) do
-        Dir.glob("*.zip") do |zipname|
-            Zip::File.open(zipname) do |zipFile|
-                zipFile.each do |entry|
-                    if entry.name =~ /\/jpcrp030000\-asr\-001_([^\-]+)\-000_(\d{4}\-\d{2}\-\d{2})_01_(\d{4}\-\d{2}\-\d{2})\.csv/
-                        edinet_id = $1
-                        closing_date = $2
-                        filing_date = $3
-                        io = StringIO.new(entry.get_input_stream.read, "r")
-                        io.set_encoding_by_bom
-                        csv_data = io.read.encode("UTF-8")
-                        csv = CSV.new(csv_data,
-                            headers: true, col_sep: "\t", row_sep: "\r\n", encoding: "UTF-8")
-                        insert_company(db, edinet_id, closing_date)
+Dir.chdir(dirname) do
+    Dir.glob("*.zip") do |zipname|
+        Zip::File.open(zipname) do |zipFile|
+            zipFile.each do |entry|
+                if entry.name =~ /\/jpcrp030000\-asr\-001_([^\-]+)\-000_(\d{4}\-\d{2}\-\d{2})_01_(\d{4}\-\d{2}\-\d{2})\.csv/
+                    edinet_id = $1
+                    closing_date = $2
+                    filing_date = $3
+                    io = StringIO.new(entry.get_input_stream.read, "r")
+                    io.set_encoding_by_bom
+                    csv_data = io.read.encode("UTF-8")
+                    csv = CSV.new(csv_data,
+                        headers: true, col_sep: "\t", row_sep: "\r\n", encoding: "UTF-8")
+                    db.transaction do
+                        puts "Processing #{edinet_id} #{closing_date}..."
+                        unless insert_company(db, edinet_id, closing_date)
+                            puts "Already exists #{edinet_id} #{closing_date}"
+                            next
+                        end
                         process_csv(db, csv, edinet_id, closing_date)
-                    end
+                    rescue SQLite3::Exception => e
+                        db.rollback
+                        puts "Exception occurred #{e.message}"
+                    end                
                 end
             end
         end
     end
-    
-    create_index(db)
-rescue SQLite3::Exception => e
-    db.rollback
-    puts "Exception occurred #{e.message}"
 end

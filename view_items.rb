@@ -1,8 +1,9 @@
 require 'sqlite3'
 
-db = SQLite3::Database.new('edinet.db')
+db_path = ARGV.shift
+db = SQLite3::Database.new(db_path)
 
-label = '純資産%'
+label = '役員%'
 
 sql = <<-SQL
     SELECT * FROM items

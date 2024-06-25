@@ -6,8 +6,8 @@ require 'stringio'
 def create_companies_table(db)
     sql = <<-SQL
         CREATE TABLE IF NOT EXISTS companies (
-            edinet_id TEXT,
-            closing_date TEXT,
+            edinet_id TEXT NOT NULL,
+            closing_date TEXT NOT NULL,
             UNIQUE(edinet_id, closing_date)
         );
     SQL
@@ -23,11 +23,11 @@ end
 def create_entries_table(db)
     sql = <<-SQL
         CREATE TABLE IF NOT EXISTS entries (
-            edinet_id TEXT,
-            closing_date TEXT,
-            item TEXT,
-            context TEXT,
-            value_id TEXT,
+            edinet_id TEXT NOT NULL,
+            closing_date TEXT NOT NULL,
+            item TEXT NOT NULL,
+            context TEXT NOT NULL,
+            value_id INTEGER,
             UNIQUE(edinet_id, closing_date, item, context)
         );
     SQL
@@ -43,8 +43,8 @@ end
 def create_items_table(db)
     sql = <<-SQL
         CREATE TABLE IF NOT EXISTS items (
-            item TEXT,
-            label TEXT,
+            item TEXT NOT NULL,
+            label TEXT NOT NULL,
             UNIQUE(item, label)
         );
     SQL
@@ -61,12 +61,12 @@ def create_item_table(db, table_name)
     sql = <<-SQL
         CREATE TABLE IF NOT EXISTS item_#{table_name} (
             id INTEGER PRIMARY KEY,
-            timing TEXT,
-            value_kind TEXT,
-            timing_kind TEXT,
-            unit_id TEXT,
-            unit TEXT,
-            value TEXT
+            timing TEXT NOT NULL,
+            value_kind TEXT NOT NULL,
+            timing_kind TEXT NOT NULL,
+            unit_id TEXT NOT NULL,
+            unit TEXT NOT NULL,
+            value TEXT NOT NULL
         );
     SQL
     db.execute(sql)

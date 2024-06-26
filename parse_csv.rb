@@ -27,15 +27,15 @@ def create_entries_table(db)
             closing_date TEXT NOT NULL,
             item TEXT NOT NULL,
             context TEXT NOT NULL,
-            value_id INTEGER,
+            value TEXT NOT NULL,
             UNIQUE(edinet_id, closing_date, item, context)
         );
     SQL
     db.execute(sql)
 
     sql = <<-SQL
-    CREATE INDEX IF NOT EXISTS idx_date_item_context ON entries
-        (closing_date, edinet_id, context)
+    CREATE INDEX IF NOT EXISTS idx_edinet_id_date_item_context ON entries
+        (edinet_id, closing_date, item, context)
     SQL
     db.execute(sql)
 end
@@ -57,17 +57,24 @@ def create_items_table(db)
     db.execute(sql)
 end
 
-def create_item_table(db, table_name)
+def create_pairs_table(db)
     sql = <<-SQL
-        CREATE TABLE IF NOT EXISTS item_#{table_name} (
-            id INTEGER PRIMARY KEY,
+        CREATE TABLE IF NOT EXISTS pairs (
+            item TEXT NOT NULL,
+            context TEXT NOT NULL,
             timing TEXT NOT NULL,
             value_kind TEXT NOT NULL,
             timing_kind TEXT NOT NULL,
             unit_id TEXT NOT NULL,
             unit TEXT NOT NULL,
-            value TEXT NOT NULL
+            UNIQUE(item, context)
         );
+    SQL
+    db.execute(sql)
+
+    sql = <<-SQL
+    CREATE INDEX IF NOT EXISTS idx_item_context ON pairs
+        (item, context)
     SQL
     db.execute(sql)
 end
@@ -107,7 +114,29 @@ def insert_item(db, item, label)
     db.execute(sql, [item, label])
 end
 
-def check_entry_exists?(db, edinet_id, closing_date, item, context)
+def insert_pairs(db, item, context, timing, value_kind, timing_kind, unit_id, unit)
+    sql = <<-SQL
+        SELECT * FROM pairs
+            WHERE item = ? AND context = ?
+    SQL
+    rows = db.execute(sql, [item, context])
+    return unless rows.empty?
+
+    sql = <<-SQL
+        INSERT INTO pairs (
+            item,
+            context,
+            timing,
+            value_kind,
+            timing_kind,
+            unit_id,
+            unit
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    SQL
+    db.execute(sql, [item, context, timing, value_kind, timing_kind, unit_id, unit])
+end
+
+def insert_entry(db, edinet_id, closing_date, item, context, value)
     sql = <<-SQL
         SELECT * FROM entries
             WHERE edinet_id = ? AND
@@ -116,45 +145,26 @@ def check_entry_exists?(db, edinet_id, closing_date, item, context)
                   context = ?
     SQL
     rows = db.execute(sql, [edinet_id, closing_date, item, context])
-    not rows.empty?
-end
+    return unless rows.empty?
 
-def insert_value(db, table_name, row)
-    sql = <<-SQL
-        INSERT INTO item_#{table_name} (
-            timing,
-            value_kind,
-            timing_kind,
-            unit_id,
-            unit,
-            value
-        ) VALUES (?, ?, ?, ?, ?, ?)
-    SQL
-    db.execute(sql, row[3..8])
-    db.last_insert_row_id
-end
-
-def insert_entry(db, edinet_id, closing_date, item, context, value_id)
     sql = <<-SQL
         INSERT INTO entries (
             edinet_id,
             closing_date,
             item,
             context,
-            value_id
+            value
         ) VALUES (?, ?, ?, ?, ?)
     SQL
-    db.execute(sql, [edinet_id, closing_date, item, context, value_id])
+    db.execute(sql, [edinet_id, closing_date, item, context, value])
 end
 
 def process_csv(db, csv, edinet_id, closing_date)
     csv.each do |row|
         item = row[0].gsub(/[\-:]/, '_')
         insert_item(db, item, row[1])
-        create_item_table(db, item)
-        next if check_entry_exists?(db, edinet_id, closing_date, item, row[2])
-        value_id = insert_value(db, item, row)
-        insert_entry(db, edinet_id, closing_date, item, row[2], value_id)
+        insert_pairs(db, item, row[2], row[3], row[4], row[5], row[6], row[7])
+        insert_entry(db, edinet_id, closing_date, item, row[2], row[8])
     end
 end
 
@@ -166,6 +176,7 @@ db.transaction do
     create_companies_table(db)
     create_entries_table(db)
     create_items_table(db)
+    create_pairs_table(db)
 rescue SQLite3::Exception => e
     db.rollback
     puts "Exception occurred #{e.message}"
@@ -193,7 +204,7 @@ Dir.chdir(dirname) do
                         process_csv(db, csv, edinet_id, closing_date)
                     rescue SQLite3::Exception => e
                         db.rollback
-                        puts "Exception occurred #{e.message}"
+                        puts "Exception occurred #{e}"
                     end                
                 end
             end

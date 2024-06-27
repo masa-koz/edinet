@@ -3,6 +3,22 @@ require 'sqlite3'
 require 'zip'
 require 'stringio'
 
+def create_ids_table(db)
+    sql = <<-SQL
+        CREATE TABLE IF NOT EXISTS ids (
+            edinet_id TEXT NOT NULL,
+            UNIQUE(edinet_id)
+        );
+    SQL
+    db.execute(sql)
+
+    sql = <<-SQL
+    CREATE INDEX IF NOT EXISTS idx_edinet_id ON ids
+        (edinet_id)
+    SQL
+    db.execute(sql)
+end
+
 def create_companies_table(db)
     sql = <<-SQL
         CREATE TABLE IF NOT EXISTS companies (
@@ -77,6 +93,23 @@ def create_pairs_table(db)
         (item, context)
     SQL
     db.execute(sql)
+end
+
+def insert_id(db, edinet_id)
+    sql = <<-SQL
+        SELECT * FROM ids
+            WHERE edinet_id = ?
+    SQL
+    rows = db.execute(sql, [edinet_id])
+    return false unless rows.empty?
+
+    sql = <<-SQL
+        INSERT INTO ids (
+            edinet_id
+        ) VALUES (?)
+    SQL
+    db.execute(sql, [edinet_id])
+    true
 end
 
 def insert_company(db, edinet_id, closing_date)
@@ -173,6 +206,7 @@ dirname = ARGV.shift
 db = SQLite3::Database.new('edinet.db')
 
 db.transaction do
+    create_ids_table(db)
     create_companies_table(db)
     create_entries_table(db)
     create_items_table(db)
@@ -197,6 +231,7 @@ Dir.chdir(dirname) do
                         headers: true, col_sep: "\t", row_sep: "\r\n", encoding: "UTF-8")
                     db.transaction do
                         puts "Processing #{edinet_id} #{closing_date}..."
+                        insert_id(db, edinet_id)
                         unless insert_company(db, edinet_id, closing_date)
                             puts "Already exists #{edinet_id} #{closing_date}"
                             next

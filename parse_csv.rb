@@ -50,8 +50,8 @@ def create_entries_table(db)
     db.execute(sql)
 
     sql = <<-SQL
-    CREATE INDEX IF NOT EXISTS idx_edinet_id_date_item_context ON entries
-        (edinet_id, closing_date, item, context)
+    CREATE INDEX IF NOT EXISTS idx_edinet_id_item_context_date ON entries
+        (edinet_id, item, context, closing_date)
     SQL
     db.execute(sql)
 end
@@ -101,7 +101,10 @@ def insert_id(db, edinet_id)
             WHERE edinet_id = ?
     SQL
     rows = db.execute(sql, [edinet_id])
-    return false unless rows.empty?
+    unless rows.empty?
+        # puts "#{edinet_id} has been registered. Skip"
+        return false
+    end
 
     sql = <<-SQL
         INSERT INTO ids (
@@ -118,7 +121,10 @@ def insert_company(db, edinet_id, closing_date)
             WHERE edinet_id = ? AND closing_date = ?
     SQL
     rows = db.execute(sql, [edinet_id, closing_date])
-    return false unless rows.empty?
+    unless rows.empty?
+        # puts "#{edinet_id} and #{closing_date} has been registered. Skip"
+        return false
+    end
 
     sql = <<-SQL
         INSERT INTO companies (
@@ -136,7 +142,10 @@ def insert_item(db, item, label)
             WHERE item = ? AND label = ?
     SQL
     rows = db.execute(sql, [item, label])
-    return unless rows.empty?
+    unless rows.empty?
+        # puts "#{item} and #{label} has been registered. Skip"
+        return
+    end
 
     sql = <<-SQL
         INSERT INTO items (
@@ -153,7 +162,10 @@ def insert_pairs(db, item, context, timing, value_kind, timing_kind, unit_id, un
             WHERE item = ? AND context = ?
     SQL
     rows = db.execute(sql, [item, context])
-    return unless rows.empty?
+    unless rows.empty?
+        # puts "#{item} and #{context} has been registered. Skip"
+        return
+    end
 
     sql = <<-SQL
         INSERT INTO pairs (
@@ -171,14 +183,20 @@ end
 
 def insert_entry(db, edinet_id, closing_date, item, context, value)
     sql = <<-SQL
-        SELECT * FROM entries
+        SELECT value FROM entries
             WHERE edinet_id = ? AND
                   closing_date = ? AND
                   item = ? AND
                   context = ?
     SQL
     rows = db.execute(sql, [edinet_id, closing_date, item, context])
-    return unless rows.empty?
+    unless rows.empty?
+        # puts "#{edinet_id} and #{closing_date} and #{item} #{context} has been registered. Skip"
+        if rows[0][0] != value
+            puts "#{edinet_id} and #{closing_date} and #{item} #{context}: Dup and different value: Old:#{rows[0][0]}, New:#{value}"
+        end
+        return
+    end
 
     sql = <<-SQL
         INSERT INTO entries (
